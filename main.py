@@ -559,8 +559,28 @@ async def invoke(payload, context=None):
         mcp_client = MCPClient(lambda: streamable_http_client(GATEWAY_URL))
 
         with mcp_client:
-            gateway_tools = mcp_client.list_tools_sync()
-            tools.extend(gateway_tools)
+            # gateway_tools = mcp_client.list_tools_sync()
+            # tools.extend(gateway_tools)
+
+            try:
+                gateway_tools = gateway_client.list_tools_sync()
+                tools.extend(gateway_tools)
+
+                logger.info(
+                    "Gateway connected successfully. Loaded %d tools.",
+                    len(gateway_tools),
+                )
+
+            except TimeoutError:
+                logger.exception("Gateway tool loading timed out")
+
+            except ConnectionError:
+                logger.exception("Gateway connection failed")
+
+            except Exception as exc:
+                logger.exception(
+                    "Gateway tool loading failed: %s", exc
+                )
 
             system_prompt = """
             You are a helpful customer support assistant for an e-commerce platform.
