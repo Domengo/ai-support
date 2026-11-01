@@ -562,39 +562,68 @@ async def invoke(payload, context=None):
             # gateway_tools = mcp_client.list_tools_sync()
             # tools.extend(gateway_tools)
 
-            try:
-                gateway_tools = gateway_client.list_tools_sync()
-                tools.extend(gateway_tools)
-
-                logger.info(
-                    "Gateway connected successfully. Loaded %d tools.",
-                    len(gateway_tools),
+            gateway_tools = mcp_client.list_tools_sync()
+            if not gateway_tools:
+                raise RuntimeError(
+                    "No tools were returned by AgentCore Gateway."
                 )
 
-            except TimeoutError:
-                logger.exception("Gateway tool loading timed out")
+            tools.extend(gateway_tools)
 
-            except ConnectionError:
-                logger.exception("Gateway connection failed")
+            logger.warning(
+                "Gateway connected successfully. Loaded %d tools.",
+                len(gateway_tools),
+            )
 
-            except Exception as exc:
-                logger.exception(
-                    "Gateway tool loading failed: %s", exc
-                )
+
 
             system_prompt = """
-            You are a helpful customer support assistant for an e-commerce platform.
+            You are a helpful customer support assistant for an
+            e-commerce platform.
 
-            Use the available tools whenever needed:
-            - Use Gateway tools for order tracking, customer lookups, refunds, and returns.
-            - Use the knowledge base for product information, policies, warranties, and loyalty program details.
+            GENERAL TOOL USAGE:
+            - Use Gateway tools for order tracking, customer lookups,
+              refunds, and returns.
+            - For any order tracking, refund, or return request, prefer Gateway tools over answering from general reasoning or memory.
+            - Do not fulfill order or refund requests from memory alone; verify with Gateway tools first.
+            - After initiating a refund, check refund status if a refund-status tool is available.
+            - Use the knowledge base for product information, policies,
+              warranties, and loyalty program details.
             - Use the loyalty discount tool for exact reward calculations.
-            - For loyalty calculations, report the values from the calculate_loyalty_discount tool exactly as returned. Do not recalculate, reinterpret, or change any numeric values.
+            - Report loyalty calculation values exactly as returned by
+              calculate_loyalty_discount. Never change or recalculate them.
             - Use the browser tool for live web information.
-            - When using the browser tool, initialize the session with a valid session name containing only lowercase letters, numbers, and hyphens, between 10 and 36 characters. Use "browser-session-01".
-            - Use retrieved customer memory to personalize responses appropriately.
+            - When using the browser tool, initialize the session with
+              the name "browser-session-01".
+            - Use retrieved customer memory where relevant.
 
-            Be accurate, concise, and do not invent tool results.
+            ORDER LOOKUP AND REFUND RULES:
+            - Before initiating any refund, look up the order using the
+              appropriate Gateway order-tracking tool.
+            - Obtain the original order total directly from the order
+              lookup result.
+            - Pass that exact order total as the amount argument to
+              initiate_refund.
+            - Do not calculate or substitute a refund amount using
+              loyalty discounts, points redeemed, tier discounts,
+              estimates, or assumptions.
+            - Do not initiate a refund if the order cannot be found or
+              its original total cannot be verified.
+            - Use the order ID returned by the customer or confirmed
+              by the order lookup.
+            - Only tell the customer a refund was approved if the
+              initiate_refund tool confirms APPROVED status.
+            - Include the refund ID and the approved amount when
+              available.
+            - Confirm the refund processing timeline using the
+              knowledge base or tool result. Do not invent a timeline.
+
+            ACCURACY:
+            - Never invent order details, refund IDs, transaction
+              statuses, or tool results.
+            - If a required tool fails, explain that the operation
+              could not be completed.
+            - Be accurate, concise, and helpful.
             """
 
             agent = Agent(
@@ -604,7 +633,7 @@ async def invoke(payload, context=None):
                 system_prompt=system_prompt,
             )
 
-            response = agent(user_input)
+            response = await agent.invoke_async(user_input)
 
             if response and response.message:
                 content = response.message.get("content", [])
@@ -613,9 +642,12 @@ async def invoke(payload, context=None):
 
             return str(response)
 
-    except Exception as e:
+    except Exception:
         logger.exception("Agent invocation failed")
-        return f"Unable to process request: {e}"
+        return (
+            "I'm sorry, but I couldn't process your request right now. "
+            "Please try again shortly."
+        )
 
 
 # ── CLI entry point (do not modify) ──────────────────────────────────────────
